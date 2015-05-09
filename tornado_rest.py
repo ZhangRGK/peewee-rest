@@ -4,10 +4,7 @@
 import importlib
 import re
 import json
-import datetime
-import time
-import decimal
-import utils
+from common import *
 from tornado.web import RequestHandler
 from peewee import PostgresqlDatabase
 from peewee import Model
@@ -18,23 +15,6 @@ user = "ken"
 password = "hh87z6r30"
 
 db = PostgresqlDatabase(db_name, user=user, password=password, host='127.0.0.1')
-
-
-class ExtEncoder(json.JSONEncoder):
-
-    '''
-    modify by bigzhu at 15/01/30 11:25:22 增加对 utils.IterBetter 的支持
-    '''
-
-    def default(self, o):
-        if isinstance(o, datetime.datetime) or isinstance(o, datetime.date):
-            return time.mktime(o.timetuple()) * 1000
-        elif isinstance(o, decimal.Decimal):
-            return float(o)
-        elif isinstance(o, utils.IterBetter):
-            return list(o)
-        # Defer to the superclass method
-        return json.JSONEncoder(self, o)
 
 
 def getAllModel(model_path):
@@ -77,6 +57,11 @@ def parseResource(models):
     return route_map
 
 
+def parseURI(uri):
+    p = re.compile("([\w*\d*]+)[/]?([\w*\d*]*)")
+    return p.findall(uri)
+
+
 class RestHandler(RequestHandler):
 
     def initialize(self):
@@ -85,17 +70,17 @@ class RestHandler(RequestHandler):
         self.models = getAllModel(self.model_path)
         # self.reg = parseResource(self.models)
 
-    def get(self, parm_str):
+    @handleError
+    def get(self):
+        parms = parseURI(self.request.uri)
         records = []
-        p = re.compile("([\w*\d*]+)[/]?([\w*\d*]*)")
-        parms = p.findall(parm_str)
         if not parms:
-            self.write(json.dumps({"error": "0"}))
+            raise Exception("访问根路径失败")
         sql_query = None
         for parm in parms:
             model_name = parm[0]
             id = parm[1]
-            model = models.get(model_name)
+            model = self.models.get(model_name)
             if not sql_query:
                 sql_query = model.select(models.get(parms[-1][0]))
             else:
@@ -105,9 +90,37 @@ class RestHandler(RequestHandler):
         records = list(sql_query.dicts().execute())
         self.write(json.dumps({"error": "0", "result": records}, cls=ExtEncoder))
 
+    @handleError
+    def post(self):
+        parms = parseURI(self.request.uri)
+        if not parms:
+            raise Exception("访问根路径失败")
+        model = self.models.get(parms[0][0])
+        model.insert(**self.arguments)
+        self.write(json.dumps({"error": "0"}))
+
+    @handleError
+    def put(self):
+        parms = parseURI(self.request.uri)
+        if not parms:
+            raise Exception("访问根路径失败")
+        model = self.models.get(parms[0][0])
+        model.update(**self.arguments).where(model.id == parms[0][1])
+
+    @handleError
+    def delete(self):
+        parms = parseURI(self.request.uri)
+        if not parms:
+            raise Exception("访问根路径失败")
+        model = self.models.get(parms[0][0])
+        model.delete().where(model.id == parms[0][1])
+
+
 if __name__ == '__main__':
     models = getAllModel("custom_model")
-    parms = [('org', '1'), ('user', '')]
+    uri = "/org/1/user/2"
+    parms = parseURI(uri)
+    print parms
     sql_query = None
     for parm in parms:
         model_name = parm[0]

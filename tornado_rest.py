@@ -4,17 +4,12 @@
 import importlib
 import re
 import json
+import tornado
 from common import *
 from tornado.web import RequestHandler
 from peewee import PostgresqlDatabase
 from peewee import Model
 from peewee import ForeignKeyField
-
-db_name = "postgres"
-user = "ken"
-password = "hh87z6r30"
-
-db = PostgresqlDatabase(db_name, user=user, password=password, host='127.0.0.1')
 
 
 def getAllModel(model_path):
@@ -62,16 +57,16 @@ def parseURI(uri):
     return p.findall(uri)
 
 
-class RestHandler(RequestHandler):
+class rest(RequestHandler):
 
     def initialize(self):
+        print self.settings
         self.db = db
-        self.model_path = self.setting["model_path"]
+        self.model_path = self.settings.get("model_path")
         self.models = getAllModel(self.model_path)
-        # self.reg = parseResource(self.models)
 
     @handleError
-    def get(self):
+    def get(self, parm_str=""):
         parms = parseURI(self.request.uri)
         records = []
         if not parms:
@@ -82,16 +77,16 @@ class RestHandler(RequestHandler):
             id = parm[1]
             model = self.models.get(model_name)
             if not sql_query:
-                sql_query = model.select(models.get(parms[-1][0]))
+                sql_query = model.select(self.models.get(parms[-1][0]))
             else:
                 sql_query = sql_query.join(model)
             if id:
-                sql_query = sql_query.where(model.id == record_id)
+                sql_query = sql_query.where(model.id == id)
         records = list(sql_query.dicts().execute())
         self.write(json.dumps({"error": "0", "result": records}, cls=ExtEncoder))
 
     @handleError
-    def post(self):
+    def post(self, parm_str=""):
         parms = parseURI(self.request.uri)
         if not parms:
             raise Exception("访问根路径失败")
@@ -100,7 +95,7 @@ class RestHandler(RequestHandler):
         self.write(json.dumps({"error": "0"}))
 
     @handleError
-    def put(self):
+    def put(self, parm_str=""):
         parms = parseURI(self.request.uri)
         if not parms:
             raise Exception("访问根路径失败")
@@ -108,7 +103,7 @@ class RestHandler(RequestHandler):
         model.update(**self.arguments).where(model.id == parms[0][1])
 
     @handleError
-    def delete(self):
+    def delete(self, parm_str=""):
         parms = parseURI(self.request.uri)
         if not parms:
             raise Exception("访问根路径失败")
@@ -117,23 +112,32 @@ class RestHandler(RequestHandler):
 
 
 if __name__ == '__main__':
-    models = getAllModel("custom_model")
-    uri = "/org/1/user/2"
-    parms = parseURI(uri)
-    print parms
-    sql_query = None
-    for parm in parms:
-        model_name = parm[0]
-        record_id = parm[1]
-        model = models.get(model_name)
-        if not sql_query:
-            sql_query = model.select()
-        else:
-            sql_query = sql_query.join(model)
-        if record_id:
-            sql_query = sql_query.where(model.id == record_id)
-    # Org = models["org"]
-    # User = models["user"]
-    # sql_query = Org.select().where(Org.id == 2).join(User).where(User.id == 1)
-    print list(sql_query.dicts().execute())
-    # records = sql_query.dicts().sql()
+    if len(sys.argv) == 2:
+        port = int(sys.argv[1])
+    else:
+        # 为了方便调试，先改成9000端口启动
+        port = 9000
+    print port
+
+    url_map = []
+    url_map.append((r'/', rest))
+    url_map.append((r'/(.*)', rest))
+
+    db_name = "postgres"
+    user = "ken"
+    password = "hh87z6r30"
+
+    db = PostgresqlDatabase(db_name, user=user, password=password, host='127.0.0.1')
+
+    settings = {
+        'debug': True,
+        'cookie_secret': 'tornado rest',
+        'db': db,
+        'model_path': 'custom_model'
+    }
+
+    application = tornado.web.Application(url_map, **settings)
+    application.listen(port)
+    ioloop = tornado.ioloop.IOLoop().instance()
+    tornado.autoreload.start(ioloop)
+    ioloop.start()

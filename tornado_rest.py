@@ -12,8 +12,7 @@ from peewee import Model
 from peewee import ForeignKeyField
 
 
-def getAllModel(model_path):
-    model_module = importlib.import_module(model_path)
+def getAllModel(model_module):
     models = {}
     for attr_name in dir(model_module):
         attr = getattr(model_module, attr_name)
@@ -54,27 +53,28 @@ def parseResource(models):
 
 def parseURI(uri):
     p = re.compile("([\w*\d*]+)[/]?([\w*\d*]*)")
-    return p.findall(uri)
+    return p.findall(re.sub("/api/v\d+", "", uri))
 
 
-class rest(RequestHandler):
+class RestHandler(RequestHandler):
 
-    def initialize(self):
-        print self.settings
+    def initialize(self, model_module, db):
         self.db = db
-        self.model_path = self.settings.get("model_path")
-        self.models = getAllModel(self.model_path)
+        self.models = getAllModel(model_module)
 
     @handleError
     def get(self, parm_str=""):
         parms = parseURI(self.request.uri)
         records = []
         if not parms:
+            # self.set_status()
             raise Exception("访问根路径失败")
         sql_query = None
         for parm in parms:
             model_name = parm[0]
             id = parm[1]
+            print model_name
+            print self.models
             model = self.models.get(model_name)
             if not sql_query:
                 sql_query = model.select(self.models.get(parms[-1][0]))
@@ -112,28 +112,25 @@ class rest(RequestHandler):
 
 
 if __name__ == '__main__':
+    model_path = 'custom_model'
+    model_module = importlib.import_module(model_path)
+
     if len(sys.argv) == 2:
         port = int(sys.argv[1])
     else:
-        # 为了方便调试，先改成9000端口启动
         port = 9000
     print port
 
+    db = PostgresqlDatabase(model_module.settings.db_name, user=model_module.settings.user, password=model_module.settings.password, host=model_module.settings.host)
+
     url_map = []
-    url_map.append((r'/', rest))
-    url_map.append((r'/(.*)', rest))
-
-    db_name = "postgres"
-    user = "ken"
-    password = "hh87z6r30"
-
-    db = PostgresqlDatabase(db_name, user=user, password=password, host='127.0.0.1')
+    url_map.append((r'/api/v%s' % model_module.settings.version, RestHandler, dict(model_module=model_module, db=db)))
+    url_map.append((r'/api/v%s(.*)' % model_module.settings.version, RestHandler, dict(model_module=model_module, db=db)))
 
     settings = {
         'debug': True,
         'cookie_secret': 'tornado rest',
-        'db': db,
-        'model_path': 'custom_model'
+        'model_path': model_path
     }
 
     application = tornado.web.Application(url_map, **settings)

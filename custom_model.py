@@ -3,7 +3,13 @@
 
 from peewee import *
 
-__version__ = "1"
+
+class settings:
+    version = "1"
+    db_name = "postgres"
+    user = "ken"
+    password = "hh87z6r30"
+    host = "127.0.0.1"
 
 
 class Org(Model):
